@@ -1695,9 +1695,7 @@ func (s *Service) Archive(ctx context.Context, req *pb.ArchiveRequest) (*pb.Arch
 		return nil, fmt.Errorf("updating ffs instance data: %s", err)
 	}
 
-	//go b.trackArchiveProgress(util.NewClonedContext(ctx), dbID, key, jid, ffsi.FFSToken, newCid, opts...)
-
-	if err := s.ArchiveTracker.Track(); err != nil {
+	if err := s.ArchiveTracker.Track(ctx, dbID, dbToken, req.GetKey(), jid, p.Cid()); err != nil {
 		return nil, fmt.Errorf("scheduling archive tracking: %s", err)
 	}
 

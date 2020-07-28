@@ -19,8 +19,9 @@ import (
 var (
 	log = logger.Logger("pow-archive")
 
-	checkInterval = time.Seconds * 30
-	maxConcurrent = 20
+	checkInterval         = time.Second * 30
+	jobStatusPollInterval = time.Second * 30
+	maxConcurrent         = 20
 )
 
 type Tracker struct {
@@ -51,6 +52,7 @@ func New(colls *collections.Collections, buckets *bc.Buckets, pgClient *powc.Cli
 func (t *Tracker) Close() error {
 	t.cancel()
 	<-t.closed
+	return nil
 }
 
 func (t *Tracker) run() {
@@ -61,7 +63,7 @@ func (t *Tracker) run() {
 			return
 		case <-time.After(checkInterval):
 			for {
-				archives, err := t.colls.ArchiveTracking.GetReadyToCheck(maxConcurrent)
+				archives, err := t.colls.ArchiveTracking.GetReadyToCheck(t.ctx, maxConcurrent)
 				if err != nil {
 					log.Errorf("getting tracked archives: %s", err)
 					break
@@ -72,12 +74,26 @@ func (t *Tracker) run() {
 				var wg sync.WaitGroup
 				wg.Add(len(archives))
 				for _, a := range archives {
-					go func(a *collections.ArchiveTracking) {
+					go func(a *collections.TrackedArchive) {
 						defer wg.Done()
 
 						ctx, cancel := context.WithTimeout(t.ctx, time.Second*5)
 						defer cancel()
-						reschedule, cause, err := t.trackArchiveProgress(ctx, a.DbID, a.DbToken, a.BucketKey, a.JID, a.BucketRoot)
+						reschedule, cause, err := t.trackArchiveProgress(ctx, a.BucketKey, a.DbID, a.DbToken, a.JID, a.BucketRoot)
+						if err != nil || reschedule {
+							if err != nil {
+								cause = err.Error()
+							}
+							if err != nil {
+								if err := t.colls.ArchiveTracking.Finalize(ctx, a.JID, cause); err != nil {
+									log.Errorf("finalizing errored/rescheduled archive tracking: %s", err)
+								}
+							}
+							return
+						}
+						if err := t.colls.ArchiveTracking.Reschedule(ctx, a.JID, jobStatusPollInterval); err != nil {
+							log.Errorf("rescheduling tracked archive: %s", err)
+						}
 
 					}(a)
 				}
