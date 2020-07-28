@@ -566,7 +566,6 @@ func (t *Textile) threadInterceptor() grpc.UnaryServerInterceptor {
 		} else if user, ok := c.UserFromContext(ctx); ok {
 			owner = user.Key
 		}
-		key, _ := c.APIKeyFromContext(ctx)
 
 		var newID thread.ID
 		var isDB bool
@@ -617,7 +616,9 @@ func (t *Textile) threadInterceptor() grpc.UnaryServerInterceptor {
 				}
 				if owner == nil || !owner.Equals(th.Owner) { // Linter can't see that owner can't be nil
 					return nil, status.Error(codes.PermissionDenied, "User does not own thread")
+
 				}
+				key, _ := c.APIKeyFromContext(ctx)
 				if key != nil && key.Type == c.UserKey {
 					// Extra user check for user API keys.
 					if key.Key != th.Key {
